@@ -191,6 +191,39 @@ runs:
         echo "Final State: $CR_STATE"
         echo "CR URL: $CR_URL"
 
+    - id: display-summary
+      name: Display ServiceNow Change Request Summary
+      uses: docker://alpine:3.20
+      shell: sh
+      env:
+        CREATE_OUTPUT: ${{ steps.create-cr.outputs.servicenow-output }}
+        APPROVAL_OUTPUT: ${{ steps.wait-for-approval.outputs.servicenow-output }}
+        CLOSE_OUTPUT: ${{ steps.close-cr.outputs.servicenow-output }}
+      run: |
+        apk add --no-cache jq > /dev/null 2>&1
+
+        CR_NUMBER=$(echo "$CREATE_OUTPUT" | jq -r '.number')
+        CR_SYS_ID=$(echo "$CREATE_OUTPUT" | jq -r '.sys_id')
+        APPROVAL=$(echo "$APPROVAL_OUTPUT" | jq -r '.approval')
+        STATE=$(echo "$CLOSE_OUTPUT" | jq -r '.state')
+
+        echo ""
+        echo "========================================="
+        echo "ServiceNow Change Request Details"
+        echo "========================================="
+        echo "Change Record: $CR_NUMBER"
+        echo ""
+        echo "Field             Value"
+        echo "----------------  ----------------------"
+        echo "CR Number         $CR_NUMBER"
+        echo "CR System ID      $CR_SYS_ID"
+        echo "Approval Status   ✅ $APPROVAL"
+        echo "Final State       $STATE"
+        echo ""
+        echo "Change Request approved and ready for deployment"
+        echo "========================================="
+        echo ""
+
     - id: publish-evidence
       name: Publish ServiceNow evidence
       kind: build
