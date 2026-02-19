@@ -8,7 +8,8 @@ A CloudBees composite action that automates the complete ServiceNow Change Reque
 - ✅ Automatically transitions through CR states (Assess → Authorize → Scheduled → Implement → Review)
 - ✅ Waits for manual approval in ServiceNow
 - ✅ Auto-closes CR on successful approval
-- ✅ Returns CR number and approval status for downstream steps
+- ✅ Returns CR number, URL, and approval status for downstream steps
+- ✅ Publishes Change Request details as CloudBees evidence
 
 ## Usage
 
@@ -43,6 +44,7 @@ steps:
 |--------|-------------|
 | `cr-sys-id` | ServiceNow Change Request system ID |
 | `cr-number` | ServiceNow Change Request number (e.g., CHG0001234) |
+| `cr-url` | Direct link to the ServiceNow Change Request |
 | `approval-status` | Approval status (approved/rejected/timeout) |
 | `cr-state` | Final Change Request state |
 

@@ -50,6 +50,9 @@ outputs:
   cr-state:
     description: Final Change Request state
     value: ${{ steps.outputs.outputs.cr-state }}
+  cr-url:
+    description: ServiceNow Change Request URL
+    value: ${{ steps.outputs.outputs.cr-url }}
 
 runs:
   using: composite
@@ -157,6 +160,7 @@ runs:
         CREATE_OUTPUT: ${{ steps.create-cr.outputs.servicenow-output }}
         APPROVAL_OUTPUT: ${{ steps.wait-for-approval.outputs.servicenow-output }}
         CLOSE_OUTPUT: ${{ steps.close-cr.outputs.servicenow-output }}
+        SERVICENOW_URL: ${{ inputs.url }}
       run: |
         set -eu
         apk add --no-cache jq > /dev/null 2>&1
@@ -171,12 +175,39 @@ runs:
         # Extract final state from close step
         CR_STATE=$(echo "$CLOSE_OUTPUT" | jq -r '.state // "Closed"')
 
+        # Build ServiceNow CR URL
+        SN_BASE_URL=$(echo "$SERVICENOW_URL" | sed 's:/*$::')
+        CR_URL="${SN_BASE_URL}/change_request.do?sys_id=${CR_SYS_ID}"
+
         # Write outputs (use printf to avoid trailing newline)
         printf "%s" "$CR_SYS_ID" > "$CLOUDBEES_OUTPUTS/cr-sys-id"
         printf "%s" "$CR_NUMBER" > "$CLOUDBEES_OUTPUTS/cr-number"
         printf "%s" "$APPROVAL_STATUS" > "$CLOUDBEES_OUTPUTS/approval-status"
         printf "%s" "$CR_STATE" > "$CLOUDBEES_OUTPUTS/cr-state"
+        printf "%s" "$CR_URL" > "$CLOUDBEES_OUTPUTS/cr-url"
 
         echo "ServiceNow CR: $CR_NUMBER (ID: $CR_SYS_ID)"
         echo "Approval Status: $APPROVAL_STATUS"
         echo "Final State: $CR_STATE"
+        echo "CR URL: $CR_URL"
+
+    - id: publish-evidence
+      name: Publish ServiceNow evidence
+      kind: build
+      uses: cloudbees-io/publish-evidence-item@v1
+      with:
+        content: |
+          ## ServiceNow Change Request Details
+
+          **Change Record: ${{ fromJSON(steps.create-cr.outputs.servicenow-output).number }}**
+
+          | Field | Value |
+          |-------|-------|
+          | **CR Number** | ${{ fromJSON(steps.create-cr.outputs.servicenow-output).number }} |
+          | **CR System ID** | ${{ fromJSON(steps.create-cr.outputs.servicenow-output).sys_id }} |
+          | **Approval Status** | ✅ ${{ fromJSON(steps.wait-for-approval.outputs.servicenow-output).approval }} |
+          | **Final State** | ${{ fromJSON(steps.close-cr.outputs.servicenow-output).state }} |
+
+          ---
+          *Change Request approved and ready for deployment*
+        format: MARKDOWN
