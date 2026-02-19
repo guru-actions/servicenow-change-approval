@@ -67,8 +67,10 @@ runs:
 
     - id: extract-cr-info
       name: Extract CR information
+      uses: docker://alpine:3.20
       shell: sh
       run: |
+        apk add --no-cache jq > /dev/null 2>&1
         CR_SYS_ID=$(echo '${{ steps.create-cr.outputs.servicenow-output }}' | jq -r '.sys_id')
         CR_NUMBER=$(echo '${{ steps.create-cr.outputs.servicenow-output }}' | jq -r '.number')
         echo "cr-sys-id=$CR_SYS_ID" >> $CLOUDBEES_OUTPUTS/cr-sys-id
