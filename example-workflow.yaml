@@ -1,0 +1,76 @@
+# Example workflow showing how to use the servicenow-change-approval action
+apiVersion: automation.cloudbees.io/v1alpha1
+kind: workflow
+name: Production Deployment with ServiceNow Approval
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to deploy"
+        type: string
+        required: true
+
+jobs:
+  deploy-with-approval:
+    steps:
+      - name: Checkout code
+        uses: cloudbees-io/checkout@v1
+
+      # Example: Build and push container image
+      - name: Build container image
+        uses: cloudbees-io/kaniko@v1
+        with:
+          dockerfile: Dockerfile
+          context: .
+          destination: stacksdemo/myapp:${{ inputs.version }}
+
+      # Request ServiceNow approval before production deployment
+      - name: Request ServiceNow approval
+        id: servicenow
+        uses: https://github.com/guru-actions/servicenow-change-approval@v1
+        with:
+          url: ${{ vars.SERVICENOW_URL }}
+          username: ${{ secrets.SERVICENOW_USERNAME }}
+          password: ${{ secrets.SERVICENOW_PASSWORD }}
+          short-description: "Deploy myapp v${{ inputs.version }} to production"
+          assignment-group: "Change Management"
+          poll-interval: "2"
+          poll-duration: "30"
+          close-notes: "Deployment completed successfully for version ${{ inputs.version }}"
+
+      - name: Check approval status
+        uses: docker://alpine:3.20
+        shell: sh
+        run: |
+          echo "=== ServiceNow Change Request Details ==="
+          echo "CR Number: ${{ steps.servicenow.outputs.cr-number }}"
+          echo "CR System ID: ${{ steps.servicenow.outputs.cr-sys-id }}"
+          echo "Approval Status: ${{ steps.servicenow.outputs.approval-status }}"
+          echo "Final State: ${{ steps.servicenow.outputs.cr-state }}"
+          echo "========================================"
+
+          if [ "${{ steps.servicenow.outputs.approval-status }}" != "approved" ]; then
+            echo "ERROR: Deployment not approved. Status: ${{ steps.servicenow.outputs.approval-status }}"
+            exit 1
+          fi
+
+      # Only deploy if approved
+      - name: Deploy to production
+        if: steps.servicenow.outputs.approval-status == 'approved'
+        uses: cloudbees-io/helm-deploy@v1
+        with:
+          chart: ./helm/myapp
+          namespace: production
+          release-name: myapp
+          values: |
+            image:
+              tag: ${{ inputs.version }}
+
+      - name: Verify deployment
+        if: steps.servicenow.outputs.approval-status == 'approved'
+        uses: docker://alpine:3.20
+        shell: sh
+        run: |
+          echo "Deployment verified for version ${{ inputs.version }}"
+          echo "ServiceNow CR ${{ steps.servicenow.outputs.cr-number }} closed successfully"

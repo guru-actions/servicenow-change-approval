@@ -1,0 +1,160 @@
+apiVersion: automation.cloudbees.io/v1alpha1
+kind: action
+name: servicenow-change-approval
+description: Complete ServiceNow Change Request lifecycle with approval gate
+
+inputs:
+  url:
+    required: true
+    description: ServiceNow instance URL (e.g., https://dev12345.service-now.com)
+  username:
+    required: true
+    description: ServiceNow username
+  password:
+    required: true
+    description: ServiceNow password
+  short-description:
+    required: true
+    description: Short description for the Change Request
+  assignment-group:
+    required: false
+    default: "Change Management"
+    description: Assignment group for the Change Request
+  cr-type:
+    required: false
+    default: "normal"
+    description: Type of Change Request (normal, emergency, standard)
+  poll-interval:
+    required: false
+    default: "1"
+    description: Polling interval in minutes
+  poll-duration:
+    required: false
+    default: "10"
+    description: Maximum polling duration in minutes
+  close-notes:
+    required: false
+    default: "Successfully completed"
+    description: Notes to add when closing the Change Request
+
+outputs:
+  cr-sys-id:
+    description: ServiceNow Change Request system ID
+    value: ${{ steps.create-cr.outputs.cr-sys-id }}
+  cr-number:
+    description: ServiceNow Change Request number
+    value: ${{ steps.create-cr.outputs.cr-number }}
+  approval-status:
+    description: Approval status (approved/rejected/timeout)
+    value: ${{ steps.wait-for-approval.outputs.approval-status }}
+  cr-state:
+    description: Final Change Request state
+    value: ${{ steps.close-cr.outputs.cr-state }}
+
+runs:
+  using: composite
+  steps:
+    - id: create-cr
+      name: Create ServiceNow Change Request
+      uses: cloudbees-io/servicenow@v1
+      with:
+        url: ${{ inputs.url }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.password }}
+        action-type: create
+        cr-type: ${{ inputs.cr-type }}
+        short-description: ${{ inputs.short-description }}
+
+    - id: extract-cr-info
+      name: Extract CR information
+      shell: sh
+      run: |
+        CR_SYS_ID=$(echo '${{ steps.create-cr.outputs.servicenow-output }}' | jq -r '.sys_id')
+        CR_NUMBER=$(echo '${{ steps.create-cr.outputs.servicenow-output }}' | jq -r '.number')
+        echo "cr-sys-id=$CR_SYS_ID" >> $CLOUDBEES_OUTPUTS/cr-sys-id
+        echo "cr-number=$CR_NUMBER" >> $CLOUDBEES_OUTPUTS/cr-number
+        echo "Created CR: $CR_NUMBER (ID: $CR_SYS_ID)"
+
+    - id: update-cr-assess
+      name: Update CR to Assess state
+      uses: cloudbees-io/servicenow@v1
+      with:
+        url: ${{ inputs.url }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.password }}
+        action-type: update
+        sys-id: ${{ fromJSON(steps.create-cr.outputs.servicenow-output).sys_id }}
+        state: Assess
+        assignment-group: ${{ inputs.assignment-group }}
+
+    - id: update-cr-authorize
+      name: Update CR to Authorize state
+      uses: cloudbees-io/servicenow@v1
+      with:
+        url: ${{ inputs.url }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.password }}
+        action-type: update
+        sys-id: ${{ fromJSON(steps.create-cr.outputs.servicenow-output).sys_id }}
+        state: Authorize
+
+    - id: update-cr-scheduled
+      name: Update CR to Scheduled state
+      uses: cloudbees-io/servicenow@v1
+      with:
+        url: ${{ inputs.url }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.password }}
+        action-type: update
+        sys-id: ${{ fromJSON(steps.create-cr.outputs.servicenow-output).sys_id }}
+        state: Scheduled
+
+    - id: update-cr-implement
+      name: Update CR to Implement state
+      uses: cloudbees-io/servicenow@v1
+      with:
+        url: ${{ inputs.url }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.password }}
+        action-type: update
+        sys-id: ${{ fromJSON(steps.create-cr.outputs.servicenow-output).sys_id }}
+        state: Implement
+
+    - id: update-cr-review
+      name: Update CR to Review state
+      uses: cloudbees-io/servicenow@v1
+      with:
+        url: ${{ inputs.url }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.password }}
+        action-type: update
+        sys-id: ${{ fromJSON(steps.create-cr.outputs.servicenow-output).sys_id }}
+        state: Review
+
+    - id: wait-for-approval
+      name: Wait for ServiceNow approval
+      uses: cloudbees-io/servicenow-poll-for-approval@v1
+      with:
+        url: ${{ inputs.url }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.password }}
+        cr-number: ${{ fromJSON(steps.create-cr.outputs.servicenow-output).number }}
+        poll-interval: ${{ inputs.poll-interval }}
+        poll-duration: ${{ inputs.poll-duration }}
+        state-field-value: Review
+        approval-field-value-approved: Approved
+        approval-field-value-rejected: Rejected
+
+    - id: close-cr
+      name: Close ServiceNow Change Request
+      uses: cloudbees-io/servicenow@v1
+      with:
+        url: ${{ inputs.url }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.password }}
+        action-type: update
+        sys-id: ${{ fromJSON(steps.create-cr.outputs.servicenow-output).sys_id }}
+        short-description: ${{ inputs.short-description }}
+        state: Closed
+        close-code: Successful
+        close-notes: ${{ inputs.close-notes }}
