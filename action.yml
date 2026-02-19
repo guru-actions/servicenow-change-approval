@@ -40,16 +40,16 @@ inputs:
 outputs:
   cr-sys-id:
     description: ServiceNow Change Request system ID
-    value: ${{ steps.create-cr.outputs.cr-sys-id }}
+    value: ${{ steps.outputs.outputs.cr-sys-id }}
   cr-number:
     description: ServiceNow Change Request number
-    value: ${{ steps.create-cr.outputs.cr-number }}
+    value: ${{ steps.outputs.outputs.cr-number }}
   approval-status:
     description: Approval status (approved/rejected/timeout)
-    value: ${{ steps.wait-for-approval.outputs.approval-status }}
+    value: ${{ steps.outputs.outputs.approval-status }}
   cr-state:
     description: Final Change Request state
-    value: ${{ steps.close-cr.outputs.cr-state }}
+    value: ${{ steps.outputs.outputs.cr-state }}
 
 runs:
   using: composite
@@ -64,18 +64,6 @@ runs:
         action-type: create
         cr-type: ${{ inputs.cr-type }}
         short-description: ${{ inputs.short-description }}
-
-    - id: extract-cr-info
-      name: Extract CR information
-      uses: docker://alpine:3.20
-      shell: sh
-      run: |
-        apk add --no-cache jq > /dev/null 2>&1
-        CR_SYS_ID=$(echo '${{ steps.create-cr.outputs.servicenow-output }}' | jq -r '.sys_id')
-        CR_NUMBER=$(echo '${{ steps.create-cr.outputs.servicenow-output }}' | jq -r '.number')
-        echo "cr-sys-id=$CR_SYS_ID" >> $CLOUDBEES_OUTPUTS/cr-sys-id
-        echo "cr-number=$CR_NUMBER" >> $CLOUDBEES_OUTPUTS/cr-number
-        echo "Created CR: $CR_NUMBER (ID: $CR_SYS_ID)"
 
     - id: update-cr-assess
       name: Update CR to Assess state
@@ -160,3 +148,35 @@ runs:
         state: Closed
         close-code: Successful
         close-notes: ${{ inputs.close-notes }}
+
+    - id: outputs
+      name: Extract and format outputs
+      uses: docker://alpine:3.20
+      shell: sh
+      env:
+        CREATE_OUTPUT: ${{ steps.create-cr.outputs.servicenow-output }}
+        APPROVAL_OUTPUT: ${{ steps.wait-for-approval.outputs.servicenow-output }}
+        CLOSE_OUTPUT: ${{ steps.close-cr.outputs.servicenow-output }}
+      run: |
+        set -eu
+        apk add --no-cache jq > /dev/null 2>&1
+
+        # Extract CR info from create step
+        CR_SYS_ID=$(echo "$CREATE_OUTPUT" | jq -r '.sys_id // "unknown"')
+        CR_NUMBER=$(echo "$CREATE_OUTPUT" | jq -r '.number // "unknown"')
+
+        # Extract approval status from poll step
+        APPROVAL_STATUS=$(echo "$APPROVAL_OUTPUT" | jq -r '.approval_status // "unknown"')
+
+        # Extract final state from close step
+        CR_STATE=$(echo "$CLOSE_OUTPUT" | jq -r '.state // "Closed"')
+
+        # Write outputs
+        echo "$CR_SYS_ID" > "$CLOUDBEES_OUTPUTS/cr-sys-id"
+        echo "$CR_NUMBER" > "$CLOUDBEES_OUTPUTS/cr-number"
+        echo "$APPROVAL_STATUS" > "$CLOUDBEES_OUTPUTS/approval-status"
+        echo "$CR_STATE" > "$CLOUDBEES_OUTPUTS/cr-state"
+
+        echo "ServiceNow CR: $CR_NUMBER (ID: $CR_SYS_ID)"
+        echo "Approval Status: $APPROVAL_STATUS"
+        echo "Final State: $CR_STATE"
