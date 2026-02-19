@@ -135,17 +135,6 @@ runs:
         approval-field-value-approved: Approved
         approval-field-value-rejected: Rejected
 
-    - id: debug-poll-output
-      name: Debug poll action output
-      uses: docker://alpine:3.20
-      shell: sh
-      env:
-        POLL_OUTPUT: ${{ steps.wait-for-approval.outputs.servicenow-output }}
-      run: |
-        echo "=== Raw poll output ==="
-        echo "$POLL_OUTPUT"
-        echo "======================="
-
     - id: close-cr
       name: Close ServiceNow Change Request
       uses: cloudbees-io/servicenow@v1
@@ -176,23 +165,17 @@ runs:
         CR_SYS_ID=$(echo "$CREATE_OUTPUT" | jq -r '.sys_id // "unknown"')
         CR_NUMBER=$(echo "$CREATE_OUTPUT" | jq -r '.number // "unknown"')
 
-        # Extract approval status from poll step - try multiple possible field names
-        APPROVAL_STATUS=$(echo "$APPROVAL_OUTPUT" | jq -r '.approval_status // .approval // .state // .u_approval // "unknown"')
-
-        # If still unknown, dump the whole output for debugging
-        if [ "$APPROVAL_STATUS" = "unknown" ]; then
-          echo "WARNING: Could not find approval status in poll output:"
-          echo "$APPROVAL_OUTPUT" | jq '.' || echo "$APPROVAL_OUTPUT"
-        fi
+        # Extract approval status from poll step
+        APPROVAL_STATUS=$(echo "$APPROVAL_OUTPUT" | jq -r '.approval // "unknown"')
 
         # Extract final state from close step
         CR_STATE=$(echo "$CLOSE_OUTPUT" | jq -r '.state // "Closed"')
 
-        # Write outputs
-        echo "$CR_SYS_ID" > "$CLOUDBEES_OUTPUTS/cr-sys-id"
-        echo "$CR_NUMBER" > "$CLOUDBEES_OUTPUTS/cr-number"
-        echo "$APPROVAL_STATUS" > "$CLOUDBEES_OUTPUTS/approval-status"
-        echo "$CR_STATE" > "$CLOUDBEES_OUTPUTS/cr-state"
+        # Write outputs (use printf to avoid trailing newline)
+        printf "%s" "$CR_SYS_ID" > "$CLOUDBEES_OUTPUTS/cr-sys-id"
+        printf "%s" "$CR_NUMBER" > "$CLOUDBEES_OUTPUTS/cr-number"
+        printf "%s" "$APPROVAL_STATUS" > "$CLOUDBEES_OUTPUTS/approval-status"
+        printf "%s" "$CR_STATE" > "$CLOUDBEES_OUTPUTS/cr-state"
 
         echo "ServiceNow CR: $CR_NUMBER (ID: $CR_SYS_ID)"
         echo "Approval Status: $APPROVAL_STATUS"
